@@ -1,5 +1,4 @@
 import 'dart:math';
-import 'dart:ui';
 import 'package:flame/experimental.dart';
 import 'package:flame/components.dart';
 import 'package:flame_tiled/flame_tiled.dart';

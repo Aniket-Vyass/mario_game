@@ -1,7 +1,5 @@
 import 'package:flame/collisions.dart';
 import 'package:flame/components.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 
 class Platform extends PositionComponent {
   Platform({required Vector2 position, required Vector2 size})
