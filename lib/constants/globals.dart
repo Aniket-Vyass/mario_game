@@ -2,11 +2,12 @@ class Globals {
   Globals._();
 
   /// Sounds
-  static const String bumpSFX = 'smb_bump.wav';
-  static const String jumpSmallSFX = 'smb_jump-small.wav';
-  static const String pauseSFX = 'smb_pause.wav';
-  static const String powerUpAppearsSFX = 'smb_powerup_appears.wav';
-  static const String breakBlockSFX = 'smb_breakblock.wav';
+  static const String bumpSFX = 'assets_audio_smb_bump.wav';
+  static const String jumpSmallSFX = 'assets_audio_smb_jump-small.wav';
+  static const String pauseSFX = 'assets_audio_smb_pause.wav';
+  static const String powerUpAppearsSFX =
+      'assets_audio_smb_powerup_appears.wav';
+  static const String breakBlockSFX = 'assets_audio_smb_breakblock.wav';
 
   /// Step Times
   static const double marioSpriteStepTime = 0.075;

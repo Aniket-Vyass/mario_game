@@ -12,20 +12,29 @@ class Goomba extends SpriteAnimationComponent
 
   Goomba({required Vector2 position})
     : super(
-        position: position,
+        position: Vector2(position.x, position.y - 15),
         size: Vector2(Globals.tileSize, Globals.tileSize),
         anchor: Anchor.topCenter,
         animation: AnimationConfigs.goomba.walking(),
       ) {
-    Vector2 targetPosition = position;
+    Vector2 startPosition = Vector2(
+      position.x,
+      position.y - 15,
+    ); // Store the adjusted starting position
 
-    // Goomba will move 100 pixels to the left and right.
-    targetPosition.x -= 100;
+    Vector2 targetPosition = Vector2(
+      //ALTERNATE IDEA: Now that you have an end/target position you can make the goombas move to the rightmost and when goomba reaches levelbounds it can disappear
+      position.x,
+      position.y - 15,
+    ); //position of goomba at X-axis
+
+    // Goomba will move 50 pixels to the left and right.
+    targetPosition.x -= 50;
 
     final SequenceEffect effect = SequenceEffect(
       [
         MoveToEffect(targetPosition, EffectController(speed: _speed)),
-        MoveToEffect(position, EffectController(speed: _speed)),
+        MoveToEffect(startPosition, EffectController(speed: _speed)),
       ],
       infinite: true,
       alternate: true,
@@ -42,7 +51,8 @@ class Goomba extends SpriteAnimationComponent
     PositionComponent other,
   ) async {
     if (other is Mario) {
-      if (!other.isOnGround) {
+      if (other.velocity.y > 0 && other.position.y < position.y) {
+        //if (!other.isOnGround) {
         other.jump();
 
         animation = AnimationConfigs.goomba.dead();

@@ -1,6 +1,7 @@
 import 'package:flame/collisions.dart';
 import 'package:flame/components.dart';
 import 'package:flame/experimental.dart';
+import 'package:flame/flame.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/services.dart';
 import 'package:mario_game/constants/animation_configs.dart';
@@ -8,32 +9,35 @@ import 'package:mario_game/constants/globals.dart';
 import 'package:mario_game/games/super_mario_bros_game.dart';
 import 'package:mario_game/objects/platform.dart';
 
-enum MarioAnimationState { idle, walk, jump }
+enum MarioAnimationState { idle, walking, jumping }
 
 class Mario extends SpriteAnimationGroupComponent<MarioAnimationState>
     with CollisionCallbacks, KeyboardHandler, HasGameRef<SuperMarioBrosGame> {
   final double _gravity = 15;
-  final Vector2 velocity = Vector2.zero();
-  final double _jumpSpeed = 400;
+  final Vector2 velocity = Vector2.zero(); //represent direction and speed
 
   final Vector2 _up = Vector2(0, -1);
+  bool _jumpInput = false;
+  bool isOnGround = false;
+  bool _paused = false;
 
   static const double _minMoveSpeed = 125;
   static const double _maxMoveSpeed = _minMoveSpeed + 100;
 
+  double _currentSpeed = _minMoveSpeed;
+
   bool isFacingRight = true;
 
-  double _currentMoveSpeed = _minMoveSpeed;
+  double _hAxisInput = 0;
 
-  bool _jumpInput = false;
-  bool isOnGround = false;
+  //👇_minClamp and _maxClamp are pretty much the _levelbounds that we specified, see line 25
+  //basically
+  late Vector2
+  _minClamp; //minimun level coordinate that mario can go in a level
+  late Vector2
+  _maxClamp; //maximum level coordinates that mario can go in a level
 
-  int _hAxisInput = 0;
-
-  late Vector2 _minClamp;
-  late Vector2 _maxClamp;
-
-  bool _pause = false;
+  double _jumpSpeed = 400;
 
   Mario({required Vector2 position, required Rectangle levelBounds})
     : super(
@@ -42,59 +46,82 @@ class Mario extends SpriteAnimationGroupComponent<MarioAnimationState>
         anchor: Anchor.center,
       ) {
     debugMode = true;
-    // Prevent Mario from going out of bounds of level.
-    // Since anchor is in the center, split size in half for calculation.
+    //we do size/2 because we need to account for
     _minClamp = levelBounds.topLeft + (size / 2);
     _maxClamp = levelBounds.bottomRight + (size / 2);
 
     add(CircleHitbox());
   }
+  //The GAME LOOP this method would be called appx every 0.1 second
+  @override
+  void update(double dt) {
+    super.update(dt);
+
+    if (dt > 0.05) return;
+
+    velocityUpdate();
+    positionUpdate(dt);
+    speedUpdate();
+    facingDirectionUpdate();
+    jumpUpdate();
+    marioAnimationUpdate();
+  }
 
   @override
-  Future<void> onLoad() async {
-    await super.onLoad();
+  bool onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
+    _hAxisInput = 0;
 
-    final SpriteAnimation idle = await AnimationConfigs.mario.idle();
-    final SpriteAnimation walking = await AnimationConfigs.mario.walking();
-    final SpriteAnimation jumping = await AnimationConfigs.mario.jumping();
+    _hAxisInput += keysPressed.contains(LogicalKeyboardKey.arrowLeft) ? -1 : 0;
+    _hAxisInput += keysPressed.contains(LogicalKeyboardKey.arrowRight) ? 1 : 0;
+    _jumpInput = keysPressed.contains(LogicalKeyboardKey.space);
 
-    animations = {
-      MarioAnimationState.idle: idle,
-      MarioAnimationState.walk: walking,
-      MarioAnimationState.jump: jumping,
-    };
+    void _pause() {
+      FlameAudio.play(Globals.pauseSFX);
 
-    current = MarioAnimationState.idle;
+      _paused ? gameRef.resumeEngine() : gameRef.pauseEngine();
+
+      _paused = !_paused;
+    }
+
+    if (keysPressed.contains(LogicalKeyboardKey.keyA)) {
+      _pause();
+    }
+
+    // ✅ Only set _jumpInput to true on key DOWN, not while held
+    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.space) {
+      _jumpInput = true;
+    } else if (event is KeyUpEvent &&
+        event.logicalKey == LogicalKeyboardKey.space) {
+      _jumpInput = false;
+    }
+
+    return super.onKeyEvent(event, keysPressed);
   }
 
-  void velocityUpdate() {
-    velocity.x = _hAxisInput * _currentMoveSpeed;
-    // Modify Mario's velocity based on inputs and gravity.
-    velocity.y += _gravity;
-    velocity.y = velocity.y.clamp(-_jumpSpeed, 150);
+  void jumpUpdate() {
+    if (_jumpInput && isOnGround) {
+      jump();
+      _jumpInput = false;
+    }
   }
 
-  void positionUpdate(double dt) {
-    // Distance = velocity * time.
-    Vector2 distance = velocity * dt;
-    position += distance;
+  void jump() {
+    velocity.y -= _jumpSpeed;
+    isOnGround = false;
 
-    // Screen boundaries for Mario, top left and bottom right points.
-    position.clamp(_minClamp, _maxClamp);
+    FlameAudio.play(Globals.jumpSmallSFX);
   }
 
-  // Stagger his speed while idle until he runs consistently.
   void speedUpdate() {
     if (_hAxisInput == 0) {
-      _currentMoveSpeed = _minMoveSpeed;
+      _currentSpeed = _minMoveSpeed;
     } else {
-      if (_currentMoveSpeed <= _maxMoveSpeed) {
-        _currentMoveSpeed++;
+      if (_currentSpeed <= _maxMoveSpeed) {
+        _currentSpeed++;
       }
     }
   }
 
-  // Set facing direction.
   void facingDirectionUpdate() {
     if (_hAxisInput > 0) {
       isFacingRight = true;
@@ -102,82 +129,60 @@ class Mario extends SpriteAnimationGroupComponent<MarioAnimationState>
       isFacingRight = false;
     }
 
-    if ((_hAxisInput < 0 && scale.x > 0) || (_hAxisInput > 0 && scale.x < 0)) {
+    if ((_hAxisInput > 0 && scale.x < 0) || (_hAxisInput < 0 && scale.x > 0)) {
       flipHorizontallyAroundCenter();
     }
   }
 
-  // Allow jump only if jump button pressed and player is on the ground.
-  void jumpUpdate() {
-    if (_jumpInput && isOnGround) {
-      jump();
-    }
+  void velocityUpdate() {
+    velocity.y += _gravity;
+    velocity.y = velocity.y.clamp(-_jumpSpeed, 150);
+
+    velocity.x = _hAxisInput * _currentSpeed;
   }
 
-  void jump() {
-    velocity.y = -_jumpSpeed;
-    isOnGround = false;
+  void positionUpdate(double dt) {
+    Vector2 distance = velocity * dt;
+    position += distance;
 
-    // Play jump sound.
-    FlameAudio.play(Globals.jumpSmallSFX);
+    position.x = position.x.clamp(_minClamp.x, _maxClamp.x);
+    position.y = position.y.clamp(_minClamp.y, _maxClamp.y);
   }
 
   void marioAnimationUpdate() {
     if (!isOnGround) {
-      current = MarioAnimationState.jump;
+      current = MarioAnimationState.jumping;
     } else if (_hAxisInput < 0 || _hAxisInput > 0) {
-      current = MarioAnimationState.walk;
-    } else if (_hAxisInput == 0) {
+      current = MarioAnimationState.walking;
+    } else {
       current = MarioAnimationState.idle;
     }
   }
 
-  // @override
-  // // ignore: deprecated_member_use
-  // bool onKeyEvent(RawKeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
-  //   _hAxisInput = 0;
-
-  //   _hAxisInput += keysPressed.contains(LogicalKeyboardKey.arrowLeft) ? -1 : 0;
-  //   _hAxisInput += keysPressed.contains(LogicalKeyboardKey.arrowRight) ? 1 : 0;
-  //   _jumpInput = keysPressed.contains(LogicalKeyboardKey.space);
-
-  //   if (keysPressed.contains(LogicalKeyboardKey.keyA)) {
-  //     _pauseGame();
-  //   }
-
-  //   return true;
-  // }
-
-  // void _pauseGame() {
-  //   FlameAudio.play(Globals.pauseSFX);
-
-  //   !_pause ? gameRef.pauseEngine() : gameRef.resumeEngine();
-
-  //   _pause = !_pause;
-  // }
-
   @override
-  void update(double dt) {
-    super.update(dt);
-    /*  dt effects velocity, so this makes sure Mario doesn't 
-        go too far when there's a lag in the framerate. 
+  Future<void> onLoad() async {
+    final SpriteAnimation idle = await AnimationConfigs.mario
+        .idle(); //idle position me default rahega that's why pahle se load kar rahe hai
+    final SpriteAnimation walking = await AnimationConfigs.mario.walking();
+    final SpriteAnimation jumping = await AnimationConfigs.mario.jumping();
 
-        Average dt is 0.016668.
-      */
-    if (dt > 0.05) return;
+    //now we are gonna map each of the animation states from enum(idle, jump, walking) to their respective animations
+    animations = {
+      MarioAnimationState.idle: idle,
+      MarioAnimationState.walking: walking,
+      MarioAnimationState.jumping: jumping,
+    };
 
-    jumpUpdate();
-    velocityUpdate();
-    positionUpdate(dt);
-    speedUpdate();
-    facingDirectionUpdate();
-    marioAnimationUpdate();
+    current = MarioAnimationState.idle;
+
+    return super.onLoad();
   }
 
+  //In this function we would know when mario collides with an object, more importantly which kind of object
   @override
   void onCollision(Set<Vector2> intersectionPoints, PositionComponent other) {
     super.onCollision(intersectionPoints, other);
-
+    //To determine if mario is hitting/colliding with a platform we would do this
     if (other is Platform) {
       if (intersectionPoints.length == 2) {
         platformPositionCheck(intersectionPoints);
@@ -185,22 +190,20 @@ class Mario extends SpriteAnimationGroupComponent<MarioAnimationState>
     }
   }
 
-  // Move Mario out of the platform he's standing on.
+  //method below is called when mario collides with a platform. basically a collision check
+  //this method is a safety method defined to check how deep in the mario circle has entered into the platform & push it back
   void platformPositionCheck(Set<Vector2> intersectionPoints) {
-    // Calculate the collision normal and penetration depth
     final Vector2 mid =
         (intersectionPoints.elementAt(0) + intersectionPoints.elementAt(1)) / 2;
 
     final Vector2 collisionNormal = absoluteCenter - mid;
-    double penetrationDepth = (size.x / 2) - collisionNormal.length;
+    double penetrationLength = (size.x / 2) - collisionNormal.length;
     collisionNormal.normalize();
 
-    // If collision normal is almost upwards, player is on the ground.
     if (_up.dot(collisionNormal) > 0.9) {
       isOnGround = true;
     }
 
-    // Fix this collision by moving the player along the collision normal by penetrationDepth.
-    position += collisionNormal.scaled(penetrationDepth);
+    position += collisionNormal.scaled(penetrationLength);
   }
 }
